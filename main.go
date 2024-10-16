@@ -78,17 +78,11 @@ func createVpcWithSG(ctx *pulumi.Context) error {
 	vpcConfig.GetObject("azs", &azs)
 
 	vpcArgs := &vpc.VpcArgs{
-		Name: vpcConfig.Get("name"),
-		Cidr: vpcConfig.Get("cidr"),
-		Tags: map[string]string{
-			"Environment": "dev",
-		},
-		PrivateSubnetTags: map[string]string{
-			"Environment": "dev",
-		},
-		PublicSubnetTags: map[string]string{
-			"Environment": "dev",
-		},
+		Name:              vpcConfig.Get("name"),
+		Cidr:              vpcConfig.Get("cidr"),
+		Tags:              map[string]string{},
+		PrivateSubnetTags: map[string]string{},
+		PublicSubnetTags:  map[string]string{},
 	}
 
 	vpcOutput, err := vpc.CreateVpc(ctx, vpcArgs)
@@ -102,20 +96,18 @@ func createVpcWithSG(ctx *pulumi.Context) error {
 		ipv4ManagedId := args[1].(pulumi.ID)
 		ipv6ManagedId := args[2].(pulumi.ID)
 
+		sgConfig := config.New(ctx, "security_group")
+		name := sgConfig.Get("name")
+		ingress := []*securitygroup.IngressRule{}
+		sgConfig.GetObject("ingress", &ingress)
+
 		_, err := securitygroup.CreateSecurityGroup(
 			ctx,
 			&securitygroup.SecurityGroupArgs{
-				Name:  "dev",
-				VpcId: string(vpcId),
-				Tags:  map[string]string{"Environment": "dev"},
-				IngressRules: []*securitygroup.IngressRule{
-					{
-						FromPort:   80,
-						ToPort:     80,
-						Protocol:   "tcp",
-						CidrBlocks: []string{vpcArgs.Cidr},
-					},
-				},
+				Name:                 name,
+				VpcId:                string(vpcId),
+				Tags:                 map[string]string{"Environment": "dev"},
+				IngressRules:         ingress,
 				IngressPrefixListIds: []string{string(ipv4ManagedId), string(ipv6ManagedId)},
 			},
 		)
