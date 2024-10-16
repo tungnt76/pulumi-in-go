@@ -6,30 +6,54 @@ import (
 	"net"
 
 	"github.com/apparentlymart/go-cidr/cidr"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
 const (
 	_newBits = 8
-	_numAz   = 3
 
 	// single nat gateway
 	_enableNatGateway = true
 )
 
-func Create(
-	ctx *pulumi.Context,
-	name,
-	baseCidr string,
-	azs []string,
-	tags map[string]string,
-) (*ec2.Vpc, []*ec2.Subnet, []*ec2.Subnet, error) {
+type VpcArgs struct {
+	Name              string
+	Cidr              string
+	Tags              map[string]string
+	PrivateSubnetTags map[string]string
+	PublicSubnetTags  map[string]string
+}
+
+type VpcOutput struct {
+	VpcId  pulumi.IDOutput
+	VpcArn pulumi.StringOutput
+}
+
+func CreateVpc(ctx *pulumi.Context, args *VpcArgs) (*VpcOutput, error) {
+	if args == nil {
+		return nil, fmt.Errorf("args cannot be nil")
+	}
+
+	name := args.Name
+	vcpCidr := args.Cidr
+	tags := args.Tags
+	privateSubnetTags := args.PrivateSubnetTags
+	publicSubnetTags := args.PublicSubnetTags
+
+	azs, err := aws.GetAvailabilityZones(ctx, &aws.GetAvailabilityZonesArgs{
+		State: pulumi.StringRef("available"),
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	vpc, err := ec2.NewVpc(
 		ctx,
 		fmt.Sprintf("%s-vpc", name),
 		&ec2.VpcArgs{
-			CidrBlock:          pulumi.String(baseCidr),
+			CidrBlock:          pulumi.String(vcpCidr),
 			EnableDnsHostnames: pulumi.Bool(true),
 			EnableDnsSupport:   pulumi.Bool(true),
 			Tags: pulumi.ToStringMap(
@@ -40,7 +64,7 @@ func Create(
 		})
 	if err != nil {
 		log.Println("new vpc error", err)
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	igw, err := ec2.NewInternetGateway(
@@ -56,14 +80,14 @@ func Create(
 		})
 	if err != nil {
 		log.Println("new internet gateway error", err)
-		return nil, nil, nil, err
+		return nil, err
 	}
 
-	privateCidrSubnets, publicCidrSubnets, err := cidrSubnet(baseCidr, azs)
+	privateCidrSubnets, publicCidrSubnets, err := cidrSubnet(vcpCidr, azs.Names)
 	fmt.Println(privateCidrSubnets, publicCidrSubnets)
 	if err != nil {
 		log.Println("cidr subnet error", err)
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	privateSubnets := []*ec2.Subnet{}
@@ -74,16 +98,16 @@ func Create(
 			&ec2.SubnetArgs{
 				VpcId:            vpc.ID(),
 				CidrBlock:        pulumi.String(cidrBlock),
-				AvailabilityZone: pulumi.String(azs[index]),
+				AvailabilityZone: pulumi.String(azs.Names[index]),
 				Tags: pulumi.ToStringMap(
 					merge(map[string]string{
 						"Name": fmt.Sprintf("%s-private-%d", name, index+1),
-					}, tags),
+					}, privateSubnetTags),
 				),
 			})
 		if err != nil {
 			log.Println("new private subnet error", err)
-			return nil, nil, nil, err
+			return nil, err
 		}
 		privateSubnets = append(privateSubnets, subnet)
 	}
@@ -96,16 +120,16 @@ func Create(
 			&ec2.SubnetArgs{
 				VpcId:            vpc.ID(),
 				CidrBlock:        pulumi.String(cidrBlock),
-				AvailabilityZone: pulumi.String(azs[index]),
+				AvailabilityZone: pulumi.String(azs.Names[index]),
 				Tags: pulumi.ToStringMap(
 					merge(map[string]string{
 						"Name": fmt.Sprintf("%s-public-%d", name, index+1),
-					}, tags),
+					}, publicSubnetTags),
 				),
 			})
 		if err != nil {
 			log.Println("new public subnet error", err)
-			return nil, nil, nil, err
+			return nil, err
 		}
 		publicSubnets = append(publicSubnets, subnet)
 
@@ -130,7 +154,7 @@ func Create(
 		)
 		if err != nil {
 			log.Println("new route table error", err)
-			return nil, nil, nil, err
+			return nil, err
 		}
 
 		_, err = ec2.NewRouteTableAssociation(
@@ -143,7 +167,7 @@ func Create(
 		)
 		if err != nil {
 			log.Println("new route table association error", err)
-			return nil, nil, nil, err
+			return nil, err
 		}
 	}
 
@@ -163,7 +187,7 @@ func Create(
 		)
 		if err != nil {
 			log.Println("new eip error", err)
-			return nil, nil, nil, err
+			return nil, err
 		}
 
 		natGw, err := ec2.NewNatGateway(
@@ -181,7 +205,7 @@ func Create(
 		)
 		if err != nil {
 			log.Println("new nat gateway error", err)
-			return nil, nil, nil, err
+			return nil, err
 		}
 
 		for index, subnet := range privateSubnets {
@@ -206,7 +230,7 @@ func Create(
 			)
 			if err != nil {
 				log.Println("new route table error", err)
-				return nil, nil, nil, err
+				return nil, err
 			}
 
 			_, err = ec2.NewRouteTableAssociation(
@@ -219,16 +243,19 @@ func Create(
 			)
 			if err != nil {
 				log.Println("new route table association error", err)
-				return nil, nil, nil, err
+				return nil, err
 			}
 		}
 	}
 
-	return vpc, privateSubnets, publicSubnets, nil
+	return &VpcOutput{
+		VpcId:  vpc.ID(),
+		VpcArn: vpc.Arn,
+	}, nil
 }
 
-func cidrSubnet(baseCidr string, azs []string) (privateCidrSubnets, publicSCidrSubnets []string, err error) {
-	_, base, err := net.ParseCIDR(baseCidr)
+func cidrSubnet(vcpCidr string, azs []string) (privateCidrSubnets, publicSCidrSubnets []string, err error) {
+	_, base, err := net.ParseCIDR(vcpCidr)
 	if err != nil {
 		return nil, nil, err
 	}

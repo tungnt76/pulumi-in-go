@@ -1,23 +1,22 @@
-name: vpc
-description: Create and manage VPCs
+name: eks-cluster
+description: EKS cluster
 runtime: go
 config:
+  environment: dev
+  
+  # AWS
   aws:region: ap-southeast-1
-  vpc:name:
-    type: string
-    description: The name of the VPC
-    default: my-vpc
-  vpc:base_cidr:
-    type: string
-    description: The base CIDR block for the VPC
-    default: 10.0.0.0/16
-  vpc:azs:
-    type: array
-    description: The availability zones to use
-    items:
-      type: string
-    default: ["ap-southeast-1a", "ap-southeast-1b", "ap-southeast-1c"]
-  # vpc:tags:
-  #   type: string
-  #   description: The tags to apply to the VPC
-  #   default: {}
+  
+  # VPC
+  vpc:name: my-vpc
+  vpc:cidr: 10.0.0.0/16
+
+  # Security Group
+  security_group:name: my-sg
+  security_group:ingress:
+    - protocol: tcp
+      from_port: 80
+      to_port: 80
+    - protocol: tcp
+      from_port: 443
+      to_port: 443
