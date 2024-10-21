@@ -106,7 +106,7 @@ func createVpcWithSG(ctx *pulumi.Context) error {
 			&securitygroup.SecurityGroupArgs{
 				Name:                 name,
 				VpcId:                string(vpcId),
-				Tags:                 map[string]string{"Environment": "dev"},
+				Tags:                 map[string]string{},
 				IngressRules:         ingress,
 				IngressPrefixListIds: []string{string(ipv4ManagedId), string(ipv6ManagedId)},
 			},
@@ -118,5 +118,14 @@ func createVpcWithSG(ctx *pulumi.Context) error {
 
 		return nil
 	})
+
+	// fakeAcm, err := acm.CreateACM(ctx, &acm.ACMArgs{CloudZoneName: "example.com", Environment: "dev", Domain: "example.com"})
+	// if err != nil {
+	// 	fmt.Printf("Failed to create ACM: %v\n", err)
+	// 	os.Exit(1)
+	// }
+
+	// fmt.Println(fakeAcm)
+
 	return nil
 }
